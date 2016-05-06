@@ -1,0 +1,231 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "AWS high availability model used for any gateway appliances, in existing VPC with dual AZ and existing subnets, create ASG per AZ, place test appliance instance in ASG. Also use ENI as the route table target which is persistent when ASG recovers from appliance failure",
+	"Parameters": {
+		"VPC" : {
+		  "Description" : "VPC ID",
+		  "Type" : "String"
+        },
+        "GatewaySG" : {
+          "Description" : "Comma delimited list of security group IDs for gateway instances to launch within",
+          "Type" : "CommaDelimitedList"
+        },
+        "PrivateRouteTableA": {
+		  "Description" : "The route table for Gateway A",
+		  "Type" : "String"
+        },
+        "PrivateRouteTableB": {
+		  "Description" : "The route table for Gateway B",
+		  "Type" : "String"
+        },
+		"GatewayPublicSubnetA" : {
+		  "Description" : "Subnet to launch first gateway into",
+		  "Type" : "String"
+		},
+		"GatewayPublicSubnetB" : {
+		  "Description" : "Subnet to launch second gateway into",
+		  "Type" : "String"
+		},
+		"GatewayPrivateSubnetA" : {
+		  "Description" : "Subnet to launch first gateway into",
+		  "Type" : "String"
+		},
+		"GatewayPrivateSubnetB" : {
+		  "Description" : "Subnet to launch second gateway into",
+		  "Type" : "String"
+		},
+		"GatewayKeyPair": {
+			"Type":"AWS::EC2::KeyPair::KeyName",
+			"Description":"Choose a key pair to logon the Gateway instances"
+		}
+	},
+	"Mappings":{
+		"RegionMap" : {
+			"us-east-1"      : { "64" : "ami-60b6c60a"},
+			"us-west-2"      : { "64" : "ami-f0091d91"},
+			"us-west-1"      : { "64" : "ami-d5ea86b5"},
+			"eu-west-1"      : { "64" : "ami-bff32ccc"},
+			"eu-central-1"   : { "64" : "ami-bc5b48d0"},
+			"ap-southeast-1" : { "64" : "ami-c9b572aa"},
+			"ap-northeast-1" : { "64" : "ami-383c1956"},
+			"sa-east-1"      : { "64" : "ami-6817af04"},
+			"ap-southeast-2" : { "64" : "ami-48d38c2b"}
+		}
+	},
+	"Resources": {
+	    "GatewayInstanceProfile": {
+	      "Type": "AWS::IAM::InstanceProfile",
+	      "Properties": {
+	        "Roles": [ { "Ref": "GatewayRole" } ],
+	        "Path": "/"
+	      }
+	    },
+	    "GatewayRole": {
+	      "Type": "AWS::IAM::Role",
+	      "Properties": {
+	        "AssumeRolePolicyDocument": {
+	          "Version": "2012-10-17",
+	          "Statement": [
+	            {
+	              "Effect": "Allow",
+	              "Principal": { "Service": [ "ec2.amazonaws.com" ] },
+	              "Action": [ "sts:AssumeRole" ]
+	            }
+	          ]
+	        },
+	        "Path": "/",
+	        "ManagedPolicyArns": [ "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess" ]
+	      }
+	    },
+		"GatewayRolePolicies": {
+			 "Type": "AWS::IAM::Policy",
+			 "Properties": {
+				"PolicyName": "root",
+				"PolicyDocument": {
+				   "Version" : "2012-10-17",
+				   "Statement": [ {
+					  "Effect": "Allow",
+					  "Action": [
+						"ec2:ModifyInstanceAttribute",
+						"ec2:AttachNetworkInterface"
+					  ],
+					  "Resource": "*"
+				   } ]
+				},
+				"Roles": [ { "Ref": "GatewayRole" } ]
+			 }
+		  },
+
+		"GatewayENIA" :{
+		   "Type" : "AWS::EC2::NetworkInterface",
+		   "Properties" : {
+			  "Description" : "ENI used for gateway-A",
+			  "GroupSet" : {"Ref": "GatewaySG"},
+			  "SourceDestCheck" : "false",
+			  "SubnetId" : {"Ref": "GatewayPrivateSubnetA"},
+			  "Tags" : [ { "Key" : "Name", "Value" : "Gateway-eni-A" }] 
+			}
+		},
+
+		"GatewayENIB" :{
+		   "Type" : "AWS::EC2::NetworkInterface",
+		   "Properties" : {
+			  "Description" : "ENI used for gateway-B",
+			  "GroupSet" : {"Ref": "GatewaySG"},
+			  "SourceDestCheck" : "false",
+			  "SubnetId" : {"Ref": "GatewayPrivateSubnetB"},
+			  "Tags" : [ { "Key" : "Name", "Value" : "Gateway-eni-B" } ]
+			}
+		},
+
+		"DefaultRouteA" : {
+			"Type" : "AWS::EC2::Route",
+			"Properties" : {
+				"RouteTableId" : { "Ref" : "PrivateRouteTableA" },
+				"DestinationCidrBlock" : "0.0.0.0/0",
+				"NetworkInterfaceId" : { "Ref" : "GatewayENIA" }
+			}
+		},
+		
+		"DefaultRouteB" : {
+			"Type" : "AWS::EC2::Route",
+			"Properties" : {
+				"RouteTableId" : { "Ref" : "PrivateRouteTableB" },
+				"DestinationCidrBlock" : "0.0.0.0/0",
+				"NetworkInterfaceId" : { "Ref" : "GatewayENIB" }
+			}
+		},
+		
+		"GatewayLaunchConfigurationA" : {
+		  "Type" : "AWS::AutoScaling::LaunchConfiguration",
+			   "Properties" : {
+					"IamInstanceProfile" : { "Ref": "GatewayInstanceProfile" },
+					"ImageId" : { "Fn::FindInMap": [ "RegionMap", { "Ref" : "AWS::Region" }, "64"] },
+					"InstanceType" : "t2.micro",
+					"SecurityGroups" : { "Ref" : "GatewaySG" },
+					"KeyName" : { "Ref": "GatewayKeyPair" },
+					"UserData": { "Fn::Base64" : { "Fn::Join" : ["\n", [
+						"#!/bin/bash",
+						"INSTANCE_ID=`curl http://169.254.169.254/latest/meta-data/instance-id`",
+						{ "Fn::Join" : ["", [ "/usr/bin/aws ec2 attach-network-interface --network-interface-id ", { "Ref" : "GatewayENIA" }, " --instance-id $INSTANCE_ID --device-index 1 --region ", { "Ref" : "AWS::Region" } ] ] },
+						{ "Fn::Join" : ["", [ "/opt/aws/bin/cfn-signal -e 0 --stack ", { "Ref" : "AWS::StackName" }, " --resource GatewayLaunchConfiguration --region ", { "Ref" : "AWS::Region" } ] ] },
+						""
+					]]}}
+				}
+		},
+
+		"GatewayLaunchConfigurationB" : {
+		  "Type" : "AWS::AutoScaling::LaunchConfiguration",
+			   "Properties" : {
+					"IamInstanceProfile" : { "Ref": "GatewayInstanceProfile" },
+					"ImageId" : { "Fn::FindInMap": [ "RegionMap", { "Ref" : "AWS::Region" }, "64"] },
+					"InstanceType" : "t2.micro",
+					"SecurityGroups" : { "Ref" : "GatewaySG" },
+					"KeyName" : { "Ref": "GatewayKeyPair" },
+					"UserData": { "Fn::Base64" : { "Fn::Join" : ["\n", [
+						"#!/bin/bash",
+						"INSTANCE_ID=`curl http://169.254.169.254/latest/meta-data/instance-id`",
+						{ "Fn::Join" : ["", [ "/usr/bin/aws ec2 attach-network-interface --network-interface-id ", { "Ref" : "GatewayENIB" }, " --instance-id $INSTANCE_ID --device-index 1 --region ", { "Ref" : "AWS::Region" } ] ] },
+						{ "Fn::Join" : ["", [ "/opt/aws/bin/cfn-signal -e 0 --stack ", { "Ref" : "AWS::StackName" }, " --resource GatewayLaunchConfiguration --region ", { "Ref" : "AWS::Region" } ] ] },
+						""
+					]]}}
+				}
+		},
+		
+		"GatewayAutoscalingGroupA" : {
+		  "Type" : "AWS::AutoScaling::AutoScalingGroup",
+		  "Properties" : {
+			"MinSize" : "1",
+			"MaxSize" : "1",
+			"LaunchConfigurationName" : {"Ref" : "GatewayLaunchConfigurationA" },
+			"VPCZoneIdentifier" : [ { "Ref" : "GatewayPublicSubnetA"} ],
+			"Tags" : [ 
+			  { "Key" : "Name", 
+						"Value" : { "Fn::Join" : ["", [
+										  "GatewayASG-A-", 
+										  { "Ref" : "VPC"}
+								  ] ] }, 
+						"PropagateAtLaunch" : "true" }
+			]
+		  }
+		},
+		
+		"GatewayAutoscalingGroupB" : {
+		  "Type" : "AWS::AutoScaling::AutoScalingGroup",
+		  "Properties" : {
+			"MinSize" : "1",
+			"MaxSize" : "1",
+			"LaunchConfigurationName" : {"Ref" : "GatewayLaunchConfigurationB" },
+			"VPCZoneIdentifier" : [ { "Ref" : "GatewayPublicSubnetB"} ],
+			"Tags" : [ 
+			  { "Key" : "Name", 
+						"Value" : { "Fn::Join" : ["", [
+										  "GatewayASG-B-", 
+										  { "Ref" : "VPC"}
+								  ] ] }, 
+						"PropagateAtLaunch" : "true" }
+			]
+		  }
+		}
+	},
+	
+  "Outputs" : {
+    "GatewayASGA" : {
+      "Description" : "Created ASG for Gateway-A",
+      "Value" :  { "Ref" : "GatewayAutoscalingGroupA" }
+    },
+    "GatewayENIA" : {
+      "Description" : "with ENI for Gateway-A",
+      "Value" :  { "Ref" : "GatewayENIA" }
+    },
+    "GatewayASGB" : {
+      "Description" : "Created ASG for Gateway-B",
+      "Value" :  { "Ref" : "GatewayAutoscalingGroupB" }
+    },
+    "GatewayENIB" : {
+      "Description" : "with ENI for Gateway-B",
+      "Value" :  { "Ref" : "GatewayENIB" }
+    }
+  }
+  
+}
