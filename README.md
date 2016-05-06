@@ -49,6 +49,6 @@ Gateway instance role allows instance to modify attribute and attach ENI
 }
 },
 
-#### folder structure
+## Folder structure
 - /basic has code for basic HA model: CloudFormation template which creates test gateways, ASG and ENI
 - /enhanced has sample code for enhanced HA: Lambda function which updates route tables based on CloudWatch Events
