@@ -12,7 +12,7 @@ To achieve HA, this model combines the use of
 For detailed explanation, please refer to
 (http://www.seanxwang.com/2016/05/aws-high-availability-gateway-part-1.html)
 
-![HA basic architecture](/basic/HA_basic.JPG?raw=true "HA basic architecture"))
+![HA basic architecture](/basic/HA_basic.JPG?raw=true "HA basic architecture")
 
 ## Components:
 
