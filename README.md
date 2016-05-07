@@ -10,7 +10,9 @@ To achieve HA, this model combines the use of
 4. use of Lambda functions to switch route table target to use backup gateway during recovery, thus minimizing service down time
 
 For detailed explanation, please refer to
-(http://www.seanxwang.com)
+(http://www.seanxwang.com/2016/05/aws-high-availability-gateway-part-1.html)
+
+![HA basic architecture](/basic/HA_basic.JPG?raw=true "HA basic architecture"))
 
 ## Components:
 
