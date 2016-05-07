@@ -1,0 +1,19 @@
+{
+  "detail-type": [
+    "AWS API Call via CloudTrail"
+  ],
+  "detail": {
+    "eventSource": [
+      "ec2.amazonaws.com"
+    ],
+    "eventName": [
+      "AttachNetworkInterface"
+    ],
+    "requestParameters": {
+      "networkInterfaceId": [
+        "eni-id1",
+        "eni-id2"
+      ]
+    }
+  }
+}

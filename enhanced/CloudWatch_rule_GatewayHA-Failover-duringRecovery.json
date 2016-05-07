@@ -1,0 +1,14 @@
+{
+  "source": [
+    "aws.autoscaling"
+  ],
+  "detail-type": [
+    "EC2 Instance Terminate Successful"
+  ],
+  "detail": {
+    "AutoScalingGroupName": [
+      "gateway-test-GatewayAutoscalingGroupA-id1",
+      "gateway-test-GatewayAutoscalingGroupB-id2"
+    ]
+  }
+}
